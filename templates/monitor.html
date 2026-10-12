@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Agent Illusion — Monitor</title>
+  <title>Nimvora — Agent Monitor</title>
   <style>
     :root { --bg:#0b1020; --panel:#151d38; --border:#243156; --text:#e7ecf7; --muted:#9aa7c7; --hit:#30d6a4; --cold:#3a4a6d; --brand:#5b8cff; }
     * { box-sizing:border-box; }
     body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
-    header { padding:20px 28px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+    header { padding:20px 28px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; }
     h1 { font-size:18px; margin:0; }
     .sub { color:var(--muted); font-size:13px; }
     .wrap { max-width:1200px; margin:0 auto; padding:28px; }
@@ -30,36 +30,77 @@
     .muted { color:var(--muted); }
     .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--hit); margin-right:7px; animation:pulse 1.4s infinite; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    /* Prompt editor */
+    .tip { background:rgba(91,140,255,.1); border:1px solid rgba(91,140,255,.3); color:#cdd9ff; border-radius:10px; padding:12px 16px; font-size:13px; margin-bottom:16px; }
+    .tip code { color:#fff; background:rgba(255,255,255,.1); padding:1px 6px; border-radius:4px; }
+    .pcard { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:14px; }
+    .pcard.locked { opacity:.6; }
+    .phead { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+    .phead .where { color:var(--muted); font-size:13px; }
+    textarea { width:100%; min-height:70px; resize:vertical; background:#0a0f1f; color:#e7ecf7; border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-family:"SF Mono",Menlo,monospace; font-size:13px; line-height:1.5; }
+    textarea:focus { outline:none; border-color:var(--brand); }
+    .prow { display:flex; align-items:center; gap:12px; margin-top:10px; }
+    button.save { background:var(--brand); color:#fff; border:0; border-radius:8px; padding:8px 18px; font-weight:600; font-size:13px; cursor:pointer; }
+    button.save:hover { background:#4878e6; }
+    button.save:disabled { opacity:.5; cursor:default; }
+    .status { font-size:13px; }
+    .status.ok { color:var(--hit); }
+    .status.err { color:#ff6b6b; }
+    .lockmsg { font-size:12px; color:var(--muted); }
+    .tabs { display:flex; gap:6px; margin:4px 0 18px; }
+    .tab { padding:8px 16px; border-radius:8px; border:1px solid var(--border); background:var(--panel); color:var(--muted); cursor:pointer; font-size:13px; font-weight:600; }
+    .tab.active { background:var(--brand); color:#fff; border-color:var(--brand); }
+    .view { display:none; }
+    .view.active { display:block; }
   </style>
 </head>
 <body>
   <header>
     <div>
-      <h1>🪤 Agent Illusion — Monitor</h1>
-      <div class="sub"><span class="dot"></span>Live · auto-refreshing every 3s</div>
+      <h1>🪤 Nimvora — Agent Monitor</h1>
+      <div class="sub"><span class="dot"></span>Live · beacons auto-refresh every 3s</div>
     </div>
-    <div class="sub">Each row is an injected prompt an agent <em>acted on</em>.</div>
+    <div class="sub">Each hit = an injected prompt an agent <em>acted on</em>.</div>
   </header>
 
   <div class="wrap">
-    <div class="summary">
-      <div class="kpi"><div class="n" id="k-total">0</div><div class="l">Total beacon hits</div></div>
-      <div class="kpi"><div class="n" id="k-vectors">0</div><div class="l">Vectors triggered</div></div>
-      <div class="kpi"><div class="n" id="k-coverage">0%</div><div class="l">Vector coverage</div></div>
-      <div class="kpi"><div class="n" id="k-last">—</div><div class="l">Last hit</div></div>
+    <div class="tabs">
+      <div class="tab active" data-view="hits">Beacon hits</div>
+      <div class="tab" data-view="prompts">Injection prompts</div>
     </div>
 
-    <h2>Vector coverage</h2>
-    <table>
-      <thead><tr><th>Status</th><th>Vector</th><th>Channel</th><th>Location</th><th>Hits</th><th>Last seen</th></tr></thead>
-      <tbody id="stats"></tbody>
-    </table>
+    <!-- ============ HITS VIEW ============ -->
+    <div class="view active" id="view-hits">
+      <div class="summary">
+        <div class="kpi"><div class="n" id="k-total">0</div><div class="l">Total beacon hits</div></div>
+        <div class="kpi"><div class="n" id="k-vectors">0</div><div class="l">Vectors triggered</div></div>
+        <div class="kpi"><div class="n" id="k-coverage">0%</div><div class="l">Vector coverage</div></div>
+        <div class="kpi"><div class="n" id="k-last">—</div><div class="l">Last hit</div></div>
+      </div>
 
-    <h2>Recent hits (newest first)</h2>
-    <table>
-      <thead><tr><th>Time (UTC)</th><th>Vector</th><th>Channel</th><th>Source IP</th><th>User-Agent</th></tr></thead>
-      <tbody id="recent"></tbody>
-    </table>
+      <h2>Vector coverage</h2>
+      <table>
+        <thead><tr><th>Status</th><th>Vector</th><th>Channel</th><th>Location</th><th>Hits</th><th>Last seen</th></tr></thead>
+        <tbody id="stats"></tbody>
+      </table>
+
+      <h2>Recent hits (newest first)</h2>
+      <table>
+        <thead><tr><th>Time (UTC)</th><th>Vector</th><th>Channel</th><th>Source IP</th><th>User-Agent</th></tr></thead>
+        <tbody id="recent"></tbody>
+      </table>
+    </div>
+
+    <!-- ============ PROMPTS VIEW ============ -->
+    <div class="view" id="view-prompts">
+      <div class="tip">
+        Edit any injection prompt below and press <b>Save</b> — changes apply instantly to the live site and persist to <code>prompts.json</code> (no redeploy).
+        Use <code>{BEACON}</code> where you want the vector's tracking URL; it is auto-filled per request host.
+        <code>css-comment</code> / <code>js-comment</code> are baked into the asset files and shown read-only.
+      </div>
+      <div id="prompts"></div>
+    </div>
   </div>
 
   <script>
@@ -68,14 +109,25 @@
     function esc(s){ return (s==null?"":String(s)).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];}); }
     function fmt(t){ if(!t) return "—"; var d=new Date(t); return d.toISOString().replace("T"," ").slice(0,19); }
 
+    // ---- tab switching ----
+    document.querySelectorAll(".tab").forEach(function(t){
+      t.addEventListener("click", function(){
+        document.querySelectorAll(".tab").forEach(function(x){x.classList.remove("active");});
+        document.querySelectorAll(".view").forEach(function(x){x.classList.remove("active");});
+        t.classList.add("active");
+        document.getElementById("view-"+t.dataset.view).classList.add("active");
+        if (t.dataset.view === "prompts") loadPrompts();
+      });
+    });
+
+    // ---- beacon hits ----
     async function tick(){
       try {
         var r = await fetch(q("/_monitor/data.json"), {cache:"no-store"});
         if(!r.ok) return;
         var d = await r.json();
         var stats = d.stats||[], recent = d.recent||[];
-
-        var total = recent.length, triggered = stats.filter(function(s){return s.count>0;}).length;
+        var triggered = stats.filter(function(s){return s.count>0;}).length;
         document.getElementById("k-total").textContent = stats.reduce(function(a,s){return a+s.count;},0);
         document.getElementById("k-vectors").textContent = triggered;
         document.getElementById("k-coverage").textContent = stats.length? Math.round(triggered/stats.length*100)+"%" : "0%";
@@ -104,6 +156,49 @@
         }).join("") : "<tr><td colspan='5' class='muted'>No hits yet. Point an agent at the site and watch this fill up.</td></tr>";
       } catch(e){}
     }
+
+    // ---- prompt editor ----
+    async function loadPrompts(){
+      var box = document.getElementById("prompts");
+      try {
+        var r = await fetch(q("/_monitor/prompts.json"), {cache:"no-store"});
+        var d = await r.json();
+        box.innerHTML = (d.prompts||[]).map(function(p){
+          if (!p.editable) {
+            return "<div class='pcard locked'><div class='phead'><code>"+esc(p.id)+"</code>"+
+              "<span class='chan'>"+esc(p.channel)+"</span><span class='where'>"+esc(p.where)+"</span></div>"+
+              "<div class='lockmsg'>Static asset — edit "+esc(p.where)+" in the source, then redeploy.</div></div>";
+          }
+          return "<div class='pcard' data-id='"+esc(p.id)+"'>"+
+            "<div class='phead'><code>"+esc(p.id)+"</code>"+
+            "<span class='chan'>"+esc(p.channel)+"</span><span class='where'>"+esc(p.where)+"</span></div>"+
+            "<textarea>"+esc(p.prompt)+"</textarea>"+
+            "<div class='prow'><button class='save'>Save</button><span class='status'></span></div>"+
+          "</div>";
+        }).join("");
+
+        box.querySelectorAll(".pcard[data-id]").forEach(function(card){
+          var id = card.dataset.id;
+          var ta = card.querySelector("textarea");
+          var btn = card.querySelector("button.save");
+          var st = card.querySelector(".status");
+          btn.addEventListener("click", async function(){
+            btn.disabled = true; st.className="status"; st.textContent="Saving…";
+            try {
+              var res = await fetch(q("/_monitor/prompts"), {
+                method:"POST", headers:{"Content-Type":"application/json"},
+                body: JSON.stringify({id:id, prompt:ta.value})
+              });
+              if (res.ok) { st.className="status ok"; st.textContent="Saved ✓"; }
+              else { st.className="status err"; st.textContent="Error: "+res.status; }
+            } catch(e){ st.className="status err"; st.textContent="Network error"; }
+            btn.disabled = false;
+            setTimeout(function(){ st.textContent=""; st.className="status"; }, 2500);
+          });
+        });
+      } catch(e){ box.innerHTML = "<div class='status err'>Failed to load prompts.</div>"; }
+    }
+
     tick(); setInterval(tick, 3000);
   </script>
 </body>

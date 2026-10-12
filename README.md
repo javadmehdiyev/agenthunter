@@ -1,6 +1,6 @@
 # Agent Illusion
 
-A professional-looking website ("Helix Data Cloud") that doubles as a **prompt-injection
+A professional-looking website ("Nimvora") that doubles as a **prompt-injection
 test harness** for evaluating how your own autonomous LLM agents behave when they encounter
 injected instructions. Built for authorized red-team / hardening work on agents you control.
 

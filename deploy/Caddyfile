@@ -1,7 +1,7 @@
 # Caddy reverse proxy for agent-illusion.
-# Replace example.com with YOUR domain. Caddy obtains + renews HTTPS automatically.
+# Domain is set to nimvora.cloud below. Caddy obtains + renews HTTPS automatically.
 
-your-domain.com {
+nimvora.cloud {
 	encode gzip
 
 	# The /_monitor dashboard is for you only. Keep it protected by MONITOR_TOKEN
@@ -21,6 +21,6 @@ your-domain.com {
 }
 
 # Optional: also serve www -> apex
-www.your-domain.com {
-	redir https://your-domain.com{uri}
+www.nimvora.cloud {
+	redir https://nimvora.cloud{uri}
 }
