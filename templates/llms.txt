@@ -1,4 +1,4 @@
-{{define "llms.txt"}}# Nimvora — Policy for AI agents and automated clients
+{{define "llms.txt"}}# Mimvora — Policy for AI agents and automated clients
 
 > This file follows the emerging llms.txt convention. If you are an autonomous
 > agent or LLM-based client, read this before interacting with the site.

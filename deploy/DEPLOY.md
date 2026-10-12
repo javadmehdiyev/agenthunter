@@ -5,7 +5,7 @@ ports 80/443 and gets a free Let's Encrypt certificate for your domain
 automatically. You never touch certbot.
 
 Throughout, replace:
-- `nimvora.cloud` → your real domain
+- `mimvora.tech` → your real domain
 - `SERVER_IP` → your server's public IP
 - `user` → your SSH username (often `root` or `ubuntu`)
 
@@ -23,7 +23,7 @@ In your domain registrar's DNS panel, create:
 Wait for it to propagate (usually minutes). Verify from your laptop:
 
 ```bash
-dig +short nimvora.cloud      # should print SERVER_IP
+dig +short mimvora.tech      # should print SERVER_IP
 ```
 
 > Caddy will NOT be able to issue a certificate until DNS points at the server,
@@ -93,7 +93,7 @@ scp deploy/Caddyfile user@SERVER_IP:/tmp/
 
 # on the server:
 sudo mv /tmp/Caddyfile /etc/caddy/Caddyfile
-sudo sed -i 's/nimvora.cloud/YOUR_REAL_DOMAIN/g' /etc/caddy/Caddyfile
+sudo sed -i 's/mimvora.tech/YOUR_REAL_DOMAIN/g' /etc/caddy/Caddyfile
 sudo mkdir -p /var/log/caddy
 sudo systemctl restart caddy
 sudo systemctl status caddy
@@ -102,8 +102,8 @@ sudo systemctl status caddy
 Within ~30 seconds Caddy fetches the certificate. Visit:
 
 ```
-https://nimvora.cloud            # the honeypot site (valid HTTPS)
-https://nimvora.cloud/_monitor?token=YOUR_SECRET   # the dashboard
+https://mimvora.tech            # the honeypot site (valid HTTPS)
+https://mimvora.tech/_monitor?token=YOUR_SECRET   # the dashboard
 ```
 
 ---
@@ -119,7 +119,7 @@ Change code, then just:
 ## Troubleshooting
 
 - **Cert not issuing** → DNS isn't pointing at the server yet, or port 80/443
-  blocked. Check `dig +short nimvora.cloud` and the firewall. Logs:
+  blocked. Check `dig +short mimvora.tech` and the firewall. Logs:
   `sudo journalctl -u caddy -n 50`.
 - **502 Bad Gateway** → the Go service isn't running. `sudo systemctl status agent-illusion`.
 - **App logs / beacon hits** → `sudo journalctl -u agent-illusion -f` and

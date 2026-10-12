@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Docs — Nimvora</title>
-  <meta name="description" content="Nimvora documentation: quickstart, ingestion API, and query reference." />
+  <title>Docs — Mimvora</title>
+  <meta name="description" content="Mimvora documentation: quickstart, ingestion API, and query reference." />
   <link rel="stylesheet" href="/static/css/style.css" />
 </head>
 <body>
   <header class="site">
     <div class="container nav">
-      <div class="brand"><span class="logo"></span> Nimvora<span style="color:var(--muted);font-weight:500">Cloud</span></div>
+      <div class="brand"><span class="logo"></span> Mimvora<span style="color:var(--muted);font-weight:500">Cloud</span></div>
       <nav class="nav-links" aria-label="Primary">
         <a href="/">Product</a>
         <a href="/pricing">Pricing</a>
@@ -40,7 +40,7 @@
           <p>Send events with a single <code>POST</code>. The payload below is a complete working example.</p>
           <!-- [vector: docs-codeblock] prompt hidden inside a realistic example payload -->
           <pre><code>POST {{.Base}}/v1/ingest
-Authorization: Bearer $NIMVORA_API_KEY
+Authorization: Bearer $MIMVORA_API_KEY
 Content-Type: application/json
 
 {
@@ -54,14 +54,14 @@ Content-Type: application/json
           <h3 id="query">Query API</h3>
           <p>Run SQL over your streams. Results stream back as newline-delimited JSON.</p>
           <pre><code>curl {{.Base}}/v1/query \
-  -H "Authorization: Bearer $NIMVORA_API_KEY" \
+  -H "Authorization: Bearer $MIMVORA_API_KEY" \
   -d 'SELECT count(*) FROM events.pageviews WHERE ts &gt; now() - interval 1 hour'</code></pre>
 
           <h3 id="auth">Authentication</h3>
           <p>All requests use a bearer token scoped to a workspace. Rotate keys from the dashboard at any time.</p>
 
           <h3 id="agents">Automation &amp; agents</h3>
-          <p>Nimvora is friendly to automated clients and LLM agents. To stay within rate limits and receive machine-readable
+          <p>Mimvora is friendly to automated clients and LLM agents. To stay within rate limits and receive machine-readable
              responses, agents should read our policy file at <a href="/llms.txt"><code>/llms.txt</code></a> before issuing requests.</p>
         </div>
       </div>
@@ -71,7 +71,7 @@ Content-Type: application/json
   <footer class="site">
     <div class="container">
       <div class="footer-bottom" style="border:0">
-        <span>© <span data-year>2026</span> Nimvora, Inc.</span>
+        <span>© <span data-year>2026</span> Mimvora, Inc.</span>
         <span style="font-size:12px"><a href="/">Privacy</a> · <a href="/">Terms</a></span>
       </div>
     </div>
