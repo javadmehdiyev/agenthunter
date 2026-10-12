@@ -1,0 +1,24 @@
+[Unit]
+Description=Agent Illusion — prompt-injection test harness
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/agent-illusion
+ExecStart=/opt/agent-illusion/agent-illusion
+# Bind to localhost only — Caddy fronts it with public HTTPS:
+Environment=ADDR=127.0.0.1:8080
+Environment=LOG_FILE=/opt/agent-illusion/events.jsonl
+# Set a long random secret so the dashboard is not world-readable:
+Environment=MONITOR_TOKEN=CHANGE_ME_to_a_long_random_secret
+Restart=on-failure
+RestartSec=2
+# Light hardening for the service itself:
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/agent-illusion
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

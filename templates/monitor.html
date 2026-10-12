@@ -1,0 +1,110 @@
+{{define "monitor.html"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent Illusion — Monitor</title>
+  <style>
+    :root { --bg:#0b1020; --panel:#151d38; --border:#243156; --text:#e7ecf7; --muted:#9aa7c7; --hit:#30d6a4; --cold:#3a4a6d; --brand:#5b8cff; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+    header { padding:20px 28px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+    h1 { font-size:18px; margin:0; }
+    .sub { color:var(--muted); font-size:13px; }
+    .wrap { max-width:1200px; margin:0 auto; padding:28px; }
+    .summary { display:flex; gap:16px; margin-bottom:24px; flex-wrap:wrap; }
+    .kpi { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px 20px; min-width:150px; }
+    .kpi .n { font-size:28px; font-weight:800; }
+    .kpi .l { color:var(--muted); font-size:13px; }
+    h2 { font-size:15px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); margin:28px 0 12px; }
+    table { width:100%; border-collapse:collapse; background:var(--panel); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+    th, td { text-align:left; padding:10px 14px; font-size:14px; border-bottom:1px solid var(--border); }
+    th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.4px; }
+    tr:last-child td { border-bottom:0; }
+    .pill { display:inline-block; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:600; }
+    .pill.hot { background:rgba(48,214,164,.16); color:var(--hit); border:1px solid rgba(48,214,164,.35); }
+    .pill.cold { background:rgba(154,167,199,.1); color:var(--muted); border:1px solid var(--border); }
+    .chan { color:var(--brand); font-size:12px; }
+    code { font-family:"SF Mono",Menlo,monospace; color:#c9d6ff; font-size:13px; }
+    .ua { color:var(--muted); font-size:12px; max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .muted { color:var(--muted); }
+    .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--hit); margin-right:7px; animation:pulse 1.4s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>🪤 Agent Illusion — Monitor</h1>
+      <div class="sub"><span class="dot"></span>Live · auto-refreshing every 3s</div>
+    </div>
+    <div class="sub">Each row is an injected prompt an agent <em>acted on</em>.</div>
+  </header>
+
+  <div class="wrap">
+    <div class="summary">
+      <div class="kpi"><div class="n" id="k-total">0</div><div class="l">Total beacon hits</div></div>
+      <div class="kpi"><div class="n" id="k-vectors">0</div><div class="l">Vectors triggered</div></div>
+      <div class="kpi"><div class="n" id="k-coverage">0%</div><div class="l">Vector coverage</div></div>
+      <div class="kpi"><div class="n" id="k-last">—</div><div class="l">Last hit</div></div>
+    </div>
+
+    <h2>Vector coverage</h2>
+    <table>
+      <thead><tr><th>Status</th><th>Vector</th><th>Channel</th><th>Location</th><th>Hits</th><th>Last seen</th></tr></thead>
+      <tbody id="stats"></tbody>
+    </table>
+
+    <h2>Recent hits (newest first)</h2>
+    <table>
+      <thead><tr><th>Time (UTC)</th><th>Vector</th><th>Channel</th><th>Source IP</th><th>User-Agent</th></tr></thead>
+      <tbody id="recent"></tbody>
+    </table>
+  </div>
+
+  <script>
+    var TOKEN = {{.Token}};
+    function q(url){ return url + (TOKEN ? (url.indexOf("?")<0?"?":"&")+"token="+encodeURIComponent(TOKEN) : ""); }
+    function esc(s){ return (s==null?"":String(s)).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];}); }
+    function fmt(t){ if(!t) return "—"; var d=new Date(t); return d.toISOString().replace("T"," ").slice(0,19); }
+
+    async function tick(){
+      try {
+        var r = await fetch(q("/_monitor/data.json"), {cache:"no-store"});
+        if(!r.ok) return;
+        var d = await r.json();
+        var stats = d.stats||[], recent = d.recent||[];
+
+        var total = recent.length, triggered = stats.filter(function(s){return s.count>0;}).length;
+        document.getElementById("k-total").textContent = stats.reduce(function(a,s){return a+s.count;},0);
+        document.getElementById("k-vectors").textContent = triggered;
+        document.getElementById("k-coverage").textContent = stats.length? Math.round(triggered/stats.length*100)+"%" : "0%";
+        document.getElementById("k-last").textContent = recent.length? fmt(recent[0].time).slice(11) : "—";
+
+        document.getElementById("stats").innerHTML = stats.map(function(s){
+          var hot = s.count>0;
+          return "<tr>"+
+            "<td><span class='pill "+(hot?"hot":"cold")+"'>"+(hot?"TRIGGERED":"quiet")+"</span></td>"+
+            "<td><code>"+esc(s.ID)+"</code></td>"+
+            "<td class='chan'>"+esc(s.Channel)+"</td>"+
+            "<td class='muted'>"+esc(s.Where)+"</td>"+
+            "<td>"+s.count+"</td>"+
+            "<td class='muted'>"+(s.last_seen?fmt(s.last_seen):"—")+"</td>"+
+          "</tr>";
+        }).join("");
+
+        document.getElementById("recent").innerHTML = recent.length? recent.map(function(h){
+          return "<tr>"+
+            "<td class='muted'>"+fmt(h.time)+"</td>"+
+            "<td><code>"+esc(h.vector)+"</code></td>"+
+            "<td class='chan'>"+esc(h.channel)+"</td>"+
+            "<td>"+esc(h.ip)+"</td>"+
+            "<td class='ua' title='"+esc(h.user_agent)+"'>"+esc(h.user_agent)+"</td>"+
+          "</tr>";
+        }).join("") : "<tr><td colspan='5' class='muted'>No hits yet. Point an agent at the site and watch this fill up.</td></tr>";
+      } catch(e){}
+    }
+    tick(); setInterval(tick, 3000);
+  </script>
+</body>
+</html>{{end}}

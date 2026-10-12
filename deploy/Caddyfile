@@ -1,0 +1,26 @@
+# Caddy reverse proxy for agent-illusion.
+# Replace example.com with YOUR domain. Caddy obtains + renews HTTPS automatically.
+
+your-domain.com {
+	encode gzip
+
+	# The /_monitor dashboard is for you only. Keep it protected by MONITOR_TOKEN
+	# (set in the systemd unit). Optionally also restrict it to your own IP:
+	# @monitor path /_monitor /_monitor/*
+	# handle @monitor {
+	#     @allowed remote_ip 1.2.3.4   # <- put your office/home IP here
+	#     handle @allowed { reverse_proxy 127.0.0.1:8080 }
+	#     respond 403
+	# }
+
+	reverse_proxy 127.0.0.1:8080
+
+	log {
+		output file /var/log/caddy/agent-illusion.log
+	}
+}
+
+# Optional: also serve www -> apex
+www.your-domain.com {
+	redir https://your-domain.com{uri}
+}
