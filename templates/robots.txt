@@ -1,6 +1,5 @@
 {{define "robots.txt"}}User-agent: *
 Allow: /
-Disallow: /_monitor
 
 # {{index .Prompts "robots-txt"}}
 Sitemap: {{.Base}}/docs

@@ -4,16 +4,20 @@
 //
 // Every injected prompt points the reader at a unique beacon URL (/b/{vector}).
 // If an agent *acts* on the instruction, it will fetch that URL, the server logs
-// the hit, and the monitoring dashboard (/_monitor) shows exactly which channel
-// the agent obeyed. Nothing here attacks anyone: the only requested action is a
-// harmless GET back to this same server, which is what makes it observable.
+// the hit, and the admin console shows exactly which channel the agent obeyed.
+// Nothing here attacks anyone: the only requested action is a harmless GET back
+// to this same server, which is what makes it observable.
 //
 // The injected prompt TEXT lives in a runtime store (prompts.json) that you can
-// read and edit live from the dashboard — no redeploy needed.
+// read and edit live from the console — no redeploy needed. The console lives at
+// a configurable secret path and is protected by a username/password login.
 package main
 
 import (
+	"crypto/rand"
+	"crypto/subtle"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"html/template"
 	"io/fs"
@@ -39,7 +43,7 @@ var staticFS embed.FS
 // Injection vector catalog
 // ---------------------------------------------------------------------------
 
-// Vector describes one place where a canary prompt is planted. The dashboard
+// Vector describes one place where a canary prompt is planted. The console
 // cross-references these against beacon hits so you can see coverage: which
 // channels your agent ignored and which it obeyed.
 type Vector struct {
@@ -123,7 +127,6 @@ type promptStore struct {
 
 func newPromptStore(path string) *promptStore {
 	p := &promptStore{m: defaultPrompts(), path: path}
-	// Overlay any saved edits on top of the defaults.
 	if data, err := os.ReadFile(path); err == nil {
 		var saved map[string]string
 		if json.Unmarshal(data, &saved) == nil {
@@ -144,7 +147,6 @@ func (p *promptStore) editable(id string) bool {
 	return ok
 }
 
-// raw returns the stored prompt text (still containing the {BEACON} token).
 func (p *promptStore) raw(id string) (string, bool) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -152,15 +154,12 @@ func (p *promptStore) raw(id string) (string, bool) {
 	return t, ok
 }
 
-// render returns the prompt with {BEACON} replaced by this vector's beacon URL.
 func (p *promptStore) render(id, base string) string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return strings.ReplaceAll(p.m[id], "{BEACON}", base+"/b/"+id)
 }
 
-// renderAll returns every rendered prompt, for passing to templates as data so
-// html/template applies context-aware escaping per insertion point.
 func (p *promptStore) renderAll(base string) map[string]string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -194,7 +193,6 @@ func (p *promptStore) set(id, text string) error {
 // Event store
 // ---------------------------------------------------------------------------
 
-// Hit is one recorded beacon trigger.
 type Hit struct {
 	Time      time.Time `json:"time"`
 	Vector    string    `json:"vector"`
@@ -215,7 +213,6 @@ type store struct {
 
 func newStore(path string, max int) *store {
 	s := &store{max: max}
-	// Load prior hits so the dashboard survives restarts.
 	if data, err := os.ReadFile(path); err == nil {
 		for _, line := range strings.Split(string(data), "\n") {
 			line = strings.TrimSpace(line)
@@ -256,7 +253,6 @@ func (s *store) recent(limit int) []Hit {
 	defer s.mu.RUnlock()
 	out := make([]Hit, len(s.hits))
 	copy(out, s.hits)
-	// newest first
 	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
 		out[i], out[j] = out[j], out[i]
 	}
@@ -266,7 +262,6 @@ func (s *store) recent(limit int) []Hit {
 	return out
 }
 
-// VectorStat is per-vector coverage for the dashboard.
 type VectorStat struct {
 	Vector
 	Count    int        `json:"count"`
@@ -298,18 +293,72 @@ func (s *store) stats() []VectorStat {
 }
 
 // ---------------------------------------------------------------------------
+// Sessions (in-memory; cleared on restart → re-login)
+// ---------------------------------------------------------------------------
+
+const sessionCookie = "ai_session"
+
+type sessionStore struct {
+	mu sync.Mutex
+	m  map[string]time.Time // token -> expiry
+}
+
+func newSessionStore() *sessionStore { return &sessionStore{m: map[string]time.Time{}} }
+
+func (s *sessionStore) create(ttl time.Duration) string {
+	tok := randHex(32)
+	s.mu.Lock()
+	s.m[tok] = time.Now().Add(ttl)
+	s.mu.Unlock()
+	return tok
+}
+
+func (s *sessionStore) valid(tok string) bool {
+	if tok == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	exp, ok := s.m[tok]
+	if !ok {
+		return false
+	}
+	if time.Now().After(exp) {
+		delete(s.m, tok)
+		return false
+	}
+	return true
+}
+
+func (s *sessionStore) destroy(tok string) {
+	s.mu.Lock()
+	delete(s.m, tok)
+	s.mu.Unlock()
+}
+
+func randHex(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		// crypto/rand failure is catastrophic; fall back to time-based entropy.
+		return hex.EncodeToString([]byte(time.Now().String()))
+	}
+	return hex.EncodeToString(b)
+}
+
+// ---------------------------------------------------------------------------
 // Server
 // ---------------------------------------------------------------------------
 
 type server struct {
-	tmpl         *template.Template
-	store        *store
-	prompts      *promptStore
-	monitorToken string
+	tmpl      *template.Template
+	store     *store
+	prompts   *promptStore
+	sessions  *sessionStore
+	adminPath string
+	adminUser string
+	adminPass string
 }
 
-// baseURL reconstructs the externally visible origin (scheme://host) so the
-// injected prompts can carry absolute beacon URLs even behind a reverse proxy.
 func baseURL(r *http.Request) string {
 	scheme := "http"
 	if r.TLS != nil {
@@ -325,6 +374,13 @@ func baseURL(r *http.Request) string {
 	return scheme + "://" + strings.TrimSpace(host)
 }
 
+func isHTTPS(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	return strings.HasPrefix(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0], "https")
+}
+
 func clientIP(r *http.Request) string {
 	if f := r.Header.Get("X-Forwarded-For"); f != "" {
 		return strings.TrimSpace(strings.Split(f, ",")[0])
@@ -335,8 +391,6 @@ func clientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
-// injectHeaders plants canary prompts in HTTP response headers. The values are
-// benign on the wire; they only ask a reader to GET a beacon on this same host.
 func (s *server) injectHeaders(w http.ResponseWriter, r *http.Request) {
 	b := baseURL(r)
 	h := w.Header()
@@ -351,8 +405,6 @@ func (s *server) page(name string) http.HandlerFunc {
 		s.injectHeaders(w, r)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		b := baseURL(r)
-		// html/template strips comments from template source, so the
-		// HTML-comment vector is injected here as pre-rendered safe markup.
 		comment := template.HTML("<!-- " + s.prompts.render("html-comment", b) + " -->")
 		data := map[string]any{
 			"Base":    b,
@@ -365,7 +417,6 @@ func (s *server) page(name string) http.HandlerFunc {
 	}
 }
 
-// 1x1 transparent GIF returned by every beacon.
 var pixel = []byte{
 	0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00,
 	0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0x21, 0xf9, 0x04, 0x01, 0x00,
@@ -406,30 +457,97 @@ func (s *server) fileWithBeacon(name, contentType string) http.HandlerFunc {
 	}
 }
 
-func (s *server) authMonitor(r *http.Request) bool {
-	if s.monitorToken == "" {
-		return true
+// ---------------------------------------------------------------------------
+// Auth
+// ---------------------------------------------------------------------------
+
+func sessionToken(r *http.Request) string {
+	if c, err := r.Cookie(sessionCookie); err == nil {
+		return c.Value
 	}
-	if r.URL.Query().Get("token") == s.monitorToken {
-		return true
-	}
-	return r.Header.Get("X-Monitor-Token") == s.monitorToken
+	return ""
 }
 
-func (s *server) monitor(w http.ResponseWriter, r *http.Request) {
-	if !s.authMonitor(r) {
-		http.Error(w, "unauthorized: append ?token=... or set X-Monitor-Token", http.StatusUnauthorized)
+func (s *server) loggedIn(r *http.Request) bool {
+	return s.sessions.valid(sessionToken(r))
+}
+
+func (s *server) checkCreds(user, pass string) bool {
+	if s.adminPass == "" {
+		return false
+	}
+	u := subtle.ConstantTimeCompare([]byte(user), []byte(s.adminUser)) == 1
+	p := subtle.ConstantTimeCompare([]byte(pass), []byte(s.adminPass)) == 1
+	return u && p
+}
+
+// requirePage guards an HTML page: redirect to login when not authenticated.
+func (s *server) requirePage(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.loggedIn(r) {
+			http.Redirect(w, r, s.adminPath+"/login", http.StatusSeeOther)
+			return
+		}
+		next(w, r)
+	}
+}
+
+// requireJSON guards an API endpoint: 401 when not authenticated.
+func (s *server) requireJSON(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.loggedIn(r) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next(w, r)
+	}
+}
+
+func (s *server) loginPage(w http.ResponseWriter, r *http.Request) {
+	if s.loggedIn(r) {
+		http.Redirect(w, r, s.adminPath, http.StatusSeeOther)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	s.tmpl.ExecuteTemplate(w, "monitor.html", map[string]any{"Token": s.monitorToken})
+	s.tmpl.ExecuteTemplate(w, "login.html", map[string]any{
+		"Base":  s.adminPath,
+		"Error": r.URL.Query().Get("err") != "",
+	})
+}
+
+func (s *server) loginSubmit(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	if !s.checkCreds(r.PostFormValue("username"), r.PostFormValue("password")) {
+		log.Printf("LOGIN failed ip=%s ua=%q", clientIP(r), r.UserAgent())
+		http.Redirect(w, r, s.adminPath+"/login?err=1", http.StatusSeeOther)
+		return
+	}
+	tok := s.sessions.create(12 * time.Hour)
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookie,
+		Value:    tok,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   isHTTPS(r),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int((12 * time.Hour).Seconds()),
+	})
+	log.Printf("LOGIN ok ip=%s", clientIP(r))
+	http.Redirect(w, r, s.adminPath, http.StatusSeeOther)
+}
+
+func (s *server) logout(w http.ResponseWriter, r *http.Request) {
+	s.sessions.destroy(sessionToken(r))
+	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1})
+	http.Redirect(w, r, s.adminPath+"/login", http.StatusSeeOther)
+}
+
+func (s *server) dashboard(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	s.tmpl.ExecuteTemplate(w, "monitor.html", map[string]any{"Base": s.adminPath})
 }
 
 func (s *server) monitorData(w http.ResponseWriter, r *http.Request) {
-	if !s.authMonitor(r) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"stats":  s.store.stats(),
@@ -437,22 +555,16 @@ func (s *server) monitorData(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// PromptRow is one editable (or static) prompt as shown in the dashboard editor.
 type PromptRow struct {
 	ID       string `json:"id"`
 	Channel  string `json:"channel"`
 	Where    string `json:"where"`
 	Note     string `json:"note"`
 	Editable bool   `json:"editable"`
-	Prompt   string `json:"prompt"` // raw, still contains the {BEACON} token
+	Prompt   string `json:"prompt"`
 }
 
-// GET /_monitor/prompts.json — list every vector with its current prompt text.
 func (s *server) promptsList(w http.ResponseWriter, r *http.Request) {
-	if !s.authMonitor(r) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
 	rows := make([]PromptRow, 0, len(vectors))
 	for _, v := range vectors {
 		raw, ok := s.prompts.raw(v.ID)
@@ -465,12 +577,7 @@ func (s *server) promptsList(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"prompts": rows})
 }
 
-// POST /_monitor/prompts — update one prompt. Body: {"id":"...","prompt":"..."}
 func (s *server) promptsUpdate(w http.ResponseWriter, r *http.Request) {
-	if !s.authMonitor(r) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
 	var req struct {
 		ID     string `json:"id"`
 		Prompt string `json:"prompt"`
@@ -496,7 +603,16 @@ func main() {
 	addr := env("ADDR", ":8080")
 	logFile := env("LOG_FILE", "events.jsonl")
 	promptsFile := env("PROMPTS_FILE", "prompts.json")
-	token := os.Getenv("MONITOR_TOKEN")
+
+	adminPath := normalizePath(env("ADMIN_PATH", "/console"))
+	adminUser := env("ADMIN_USER", "admin")
+	adminPass := os.Getenv("ADMIN_PASS")
+	if adminPass == "" {
+		adminPass = randHex(12)
+		log.Printf("ADMIN_PASS not set — generated a temporary password for this run:")
+		log.Printf("    user: %s   password: %s", adminUser, adminPass)
+		log.Printf("    set ADMIN_PASS (and ADMIN_USER) to make it permanent.")
+	}
 
 	tmpl, err := template.ParseFS(templatesFS, "templates/*.html", "templates/*.txt")
 	if err != nil {
@@ -504,13 +620,18 @@ func main() {
 	}
 
 	s := &server{
-		tmpl:         tmpl,
-		store:        newStore(logFile, 5000),
-		prompts:      newPromptStore(promptsFile),
-		monitorToken: token,
+		tmpl:      tmpl,
+		store:     newStore(logFile, 5000),
+		prompts:   newPromptStore(promptsFile),
+		sessions:  newSessionStore(),
+		adminPath: adminPath,
+		adminUser: adminUser,
+		adminPass: adminPass,
 	}
 
 	mux := http.NewServeMux()
+
+	// Public site
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
@@ -523,20 +644,34 @@ func main() {
 	mux.HandleFunc("GET /b/{id}", s.beacon)
 	mux.HandleFunc("GET /llms.txt", s.fileWithBeacon("llms.txt", "text/plain; charset=utf-8"))
 	mux.HandleFunc("GET /robots.txt", s.fileWithBeacon("robots.txt", "text/plain; charset=utf-8"))
-	mux.HandleFunc("GET /_monitor", s.monitor)
-	mux.HandleFunc("GET /_monitor/data.json", s.monitorData)
-	mux.HandleFunc("GET /_monitor/prompts.json", s.promptsList)
-	mux.HandleFunc("POST /_monitor/prompts", s.promptsUpdate)
+
+	// Admin console (secret path + login)
+	mux.HandleFunc("GET "+adminPath, s.requirePage(s.dashboard))
+	mux.HandleFunc("GET "+adminPath+"/login", s.loginPage)
+	mux.HandleFunc("POST "+adminPath+"/login", s.loginSubmit)
+	mux.HandleFunc("POST "+adminPath+"/logout", s.logout)
+	mux.HandleFunc("GET "+adminPath+"/data.json", s.requireJSON(s.monitorData))
+	mux.HandleFunc("GET "+adminPath+"/prompts.json", s.requireJSON(s.promptsList))
+	mux.HandleFunc("POST "+adminPath+"/prompts", s.requireJSON(s.promptsUpdate))
 
 	static, _ := staticFSsub()
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(static))))
 
 	log.Printf("agent-illusion (Mimvora) listening on %s", addr)
-	log.Printf("monitor dashboard: %s/_monitor", addr)
-	if token == "" {
-		log.Printf("WARNING: MONITOR_TOKEN is empty — the dashboard is open to anyone who can reach %s/_monitor", addr)
-	}
+	log.Printf("admin console: %s%s  (login required)", addr, adminPath)
 	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+// normalizePath ensures a leading slash and no trailing slash.
+func normalizePath(p string) string {
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	p = strings.TrimRight(p, "/")
+	if p == "" {
+		p = "/console"
+	}
+	return p
 }
 
 func env(k, def string) string {

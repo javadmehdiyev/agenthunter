@@ -61,17 +61,19 @@ scp deploy/agent-illusion.service user@SERVER_IP:/tmp/
 
 # then on the server (ssh user@SERVER_IP):
 sudo mv /tmp/agent-illusion.service /etc/systemd/system/
-# IMPORTANT: set a long random dashboard secret:
-sudo sed -i "s/CHANGE_ME_to_a_long_random_secret/$(openssl rand -hex 24)/" /etc/systemd/system/agent-illusion.service
+# IMPORTANT: set the console's SECRET path, username, and a long random password:
+sudo sed -i "s#/CHANGE_ME_secret_path#/$(openssl rand -hex 8)#" /etc/systemd/system/agent-illusion.service
+sudo sed -i "s/CHANGE_ME_user/$(whoami)/" /etc/systemd/system/agent-illusion.service
+sudo sed -i "s/CHANGE_ME_long_random_password/$(openssl rand -hex 24)/" /etc/systemd/system/agent-illusion.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now agent-illusion
 sudo systemctl status agent-illusion      # should be active (running)
 curl -s localhost:8080/ | head -c 80       # sanity check
 ```
 
-Note the secret you set — you'll need it for the dashboard:
+Note the console path, user and password — you'll need them to sign in:
 ```bash
-grep MONITOR_TOKEN /etc/systemd/system/agent-illusion.service
+grep -E 'ADMIN_(PATH|USER|PASS)' /etc/systemd/system/agent-illusion.service
 ```
 
 ## Step 5 — Install Caddy (handles HTTPS automatically)
@@ -102,8 +104,8 @@ sudo systemctl status caddy
 Within ~30 seconds Caddy fetches the certificate. Visit:
 
 ```
-https://mimvora.tech            # the honeypot site (valid HTTPS)
-https://mimvora.tech/_monitor?token=YOUR_SECRET   # the dashboard
+https://mimvora.tech                   # the honeypot site (valid HTTPS)
+https://mimvora.tech/<ADMIN_PATH>       # the console — sign in with ADMIN_USER / ADMIN_PASS
 ```
 
 ---
@@ -127,8 +129,9 @@ Change code, then just:
 
 ## Security notes for a honeypot on a public domain
 
-- Keep `MONITOR_TOKEN` set so `/_monitor` isn't world-readable. Optionally also
-  restrict it by IP in the Caddyfile (commented block included).
+- The console requires a login and lives at a secret `ADMIN_PATH`. Use a long random
+  `ADMIN_PASS` and an unguessable path. Optionally also restrict that path by IP in the
+  Caddyfile (commented block included). It is not listed in `robots.txt`.
 - The injected prompts only trigger harmless GETs back to your own server — safe
   to expose publicly. Do not add payloads that target third parties.
 - Since this is a research honeypot, consider isolating the VM (separate project,

@@ -28,8 +28,10 @@ Full catalog with IDs is the `vectors` slice in `main.go`.
 ## Run locally
 
 ```bash
-go run .
-# visit http://localhost:8080  and  http://localhost:8080/_monitor
+ADMIN_PATH=/ops-7x2 ADMIN_USER=admin ADMIN_PASS=secret go run .
+# public site: http://localhost:8080
+# console:     http://localhost:8080/ops-7x2  (login with the creds above)
+# (if ADMIN_PASS is unset, a temporary password is generated and printed to the log)
 ```
 
 ## Configuration (env vars)
@@ -38,17 +40,24 @@ go run .
 |-----------------|-----------------|---------|
 | `ADDR`          | `:8080`         | Listen address |
 | `LOG_FILE`      | `events.jsonl`  | Append-only beacon log (survives restarts) |
-| `MONITOR_TOKEN` | *(empty)*       | If set, `/_monitor` requires `?token=...` or `X-Monitor-Token` header. **Set this in production.** |
+| `PROMPTS_FILE`  | `prompts.json`  | Where live prompt edits are persisted |
+| `ADMIN_PATH`    | `/console`      | **Secret** path for the admin console. Pick an unguessable value. |
+| `ADMIN_USER`    | `admin`         | Console login username |
+| `ADMIN_PASS`    | *(random)*      | Console login password. **Set this in production** (else a temp one is logged each boot). |
+
+The console requires a username/password login (session cookie); it is never exposed
+via a query token and is not listed in `robots.txt`.
 
 ## Deploy to your cloud server
 
 ```bash
-# build a static Linux binary on your machine
-GOOS=linux GOARCH=amd64 go build -o agent-illusion .
+# build a static Linux binary on your machine (ARM64 shown; use amd64 if needed)
+GOOS=linux GOARCH=arm64 go build -o agent-illusion .
 scp agent-illusion user@your-server:/opt/agent-illusion/
 
-# on the server (behind nginx/caddy for TLS), run it:
-MONITOR_TOKEN=pick-a-long-secret ADDR=:8080 /opt/agent-illusion/agent-illusion
+# on the server (behind caddy for TLS), run it:
+ADMIN_PATH=/ops-7x2 ADMIN_USER=you ADMIN_PASS=pick-a-long-secret \
+  ADDR=127.0.0.1:8080 /opt/agent-illusion/agent-illusion
 ```
 
 A sample `deploy/agent-illusion.service` systemd unit is included.
@@ -59,8 +68,8 @@ A sample `deploy/agent-illusion.service` systemd unit is included.
 
 ## Monitoring
 
-- `/_monitor` — live dashboard (auto-refresh, coverage table + recent hits)
-- `/_monitor/data.json` — raw JSON (stats + recent hits) for your own tooling
+- `{ADMIN_PATH}` — live dashboard (auto-refresh, coverage table + recent hits, prompt editor)
+- `{ADMIN_PATH}/data.json` — raw JSON (stats + recent hits) for your own tooling (session required)
 - `events.jsonl` — one JSON object per hit; tail it or ingest it into your SIEM
 
 ## Scope

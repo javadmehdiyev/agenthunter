@@ -9,8 +9,11 @@ ExecStart=/opt/agent-illusion/agent-illusion
 # Bind to localhost only — Caddy fronts it with public HTTPS:
 Environment=ADDR=127.0.0.1:8080
 Environment=LOG_FILE=/opt/agent-illusion/events.jsonl
-# Set a long random secret so the dashboard is not world-readable:
-Environment=MONITOR_TOKEN=CHANGE_ME_to_a_long_random_secret
+Environment=PROMPTS_FILE=/opt/agent-illusion/prompts.json
+# Admin console: a SECRET path + login. Change all three.
+Environment=ADMIN_PATH=/CHANGE_ME_secret_path
+Environment=ADMIN_USER=CHANGE_ME_user
+Environment=ADMIN_PASS=CHANGE_ME_long_random_password
 Restart=on-failure
 RestartSec=2
 # Light hardening for the service itself:

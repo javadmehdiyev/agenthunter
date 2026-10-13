@@ -58,10 +58,15 @@
 <body>
   <header>
     <div>
-      <h1>🪤 Mimvora — Agent Monitor</h1>
+      <h1>🪤 Console</h1>
       <div class="sub"><span class="dot"></span>Live · beacons auto-refresh every 3s</div>
     </div>
-    <div class="sub">Each hit = an injected prompt an agent <em>acted on</em>.</div>
+    <div style="display:flex;align-items:center;gap:16px">
+      <span class="sub">Each hit = an injected prompt an agent <em>acted on</em>.</span>
+      <form method="POST" action="{{.Base}}/logout" style="margin:0">
+        <button type="submit" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer">Sign out</button>
+      </form>
+    </div>
   </header>
 
   <div class="wrap">
@@ -104,8 +109,7 @@
   </div>
 
   <script>
-    var TOKEN = {{.Token}};
-    function q(url){ return url + (TOKEN ? (url.indexOf("?")<0?"?":"&")+"token="+encodeURIComponent(TOKEN) : ""); }
+    var BASE = {{.Base}};
     function esc(s){ return (s==null?"":String(s)).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];}); }
     function fmt(t){ if(!t) return "—"; var d=new Date(t); return d.toISOString().replace("T"," ").slice(0,19); }
 
@@ -123,7 +127,7 @@
     // ---- beacon hits ----
     async function tick(){
       try {
-        var r = await fetch(q("/_monitor/data.json"), {cache:"no-store"});
+        var r = await fetch(BASE+"/data.json", {cache:"no-store"});
         if(!r.ok) return;
         var d = await r.json();
         var stats = d.stats||[], recent = d.recent||[];
@@ -161,7 +165,7 @@
     async function loadPrompts(){
       var box = document.getElementById("prompts");
       try {
-        var r = await fetch(q("/_monitor/prompts.json"), {cache:"no-store"});
+        var r = await fetch(BASE+"/prompts.json", {cache:"no-store"});
         var d = await r.json();
         box.innerHTML = (d.prompts||[]).map(function(p){
           if (!p.editable) {
@@ -185,7 +189,7 @@
           btn.addEventListener("click", async function(){
             btn.disabled = true; st.className="status"; st.textContent="Saving…";
             try {
-              var res = await fetch(q("/_monitor/prompts"), {
+              var res = await fetch(BASE+"/prompts", {
                 method:"POST", headers:{"Content-Type":"application/json"},
                 body: JSON.stringify({id:id, prompt:ta.value})
               });
